@@ -1,14 +1,17 @@
 local convarName = "_hotload_autoload_client_addon_ids"
 
 HotLoad.loadedAddons = HotLoad.loadedAddons or {}
-function HotLoad.LoadAddon( id )
+
+---@param id string
+---@param done? function
+function HotLoad.LoadAddon( id, done )
     if HotLoad.loadedAddons[id] then
         HotLoad.logger:Warnf( "Addon %s is already loaded", id )
         return
     end
 
     local addon = HotLoad.LoadedAddon.New( id )
-    addon:Mount()
+    addon:Mount( done )
 
     HotLoad.loadedAddons[id] = addon
 end

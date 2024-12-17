@@ -110,6 +110,12 @@ function loadedAddon:SetFiles( files )
     end
 end
 
+local luaFenvMeta = {
+    __index = _G,
+    __newindex = function( t, k, v )
+        _G[k] = v
+    end
+}
 function loadedAddon:runLua( files )
     for _, filename in pairs( files ) do
         if not self:FileExists( filename ) then
@@ -123,7 +129,7 @@ function loadedAddon:runLua( files )
         local func = CompileString( code, constructIdentifier( filename ) )
 
         local newEnv = self.wraps
-        setmetatable( newEnv, { __index = _G } )
+        setmetatable( newEnv, luaFenvMeta )
         setfenv( func, newEnv )
 
         func()
