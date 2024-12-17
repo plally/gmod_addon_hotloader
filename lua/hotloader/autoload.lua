@@ -59,5 +59,6 @@ if CLIENT then
             end
         end
     end
-    LoadAddons()
+
+    hook.Add( "InitPostEntity", "HotLoad_Autoload", LoadAddons )
 end
