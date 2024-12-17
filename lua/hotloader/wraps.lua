@@ -38,8 +38,16 @@ function HotLoad.GetWraps( addon )
         HotLoad.logger:Debugf( "Ignoring AddCSLuaFile for '%s'", filename )
     end
 
+    local funcPrinter = function( ... )
+        HotLoad.logger:Debug( "Ignoring function call with args", ... )
+    end
     return {
         include = includeOverride,
-        AddCSLuaFile = AddCSLuaFileOverride
+        AddCSLuaFile = AddCSLuaFileOverride,
+        resource = {
+            AddFile = funcPrinter,
+            AddSingleFile = funcPrinter,
+            AddWorkshop = funcPrinter,
+        }
     }
 end

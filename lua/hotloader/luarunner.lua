@@ -132,7 +132,10 @@ function loadedAddon:runLua( files )
         setmetatable( newEnv, luaFenvMeta )
         setfenv( func, newEnv )
 
+        local startTime = SysTime()
         func()
+        local elapsed = SysTime() - startTime
+        HotLoad.logger:Debugf( "File '%s' took %s seconds to run", filename, elapsed )
     end
 end
 
@@ -204,10 +207,10 @@ function loadedAddon:loadSweps()
             Purpose = "",
             Instructions = "",
             ViewModel = "models/weapons/v_pistol.mdl",
+
             -- TODO all defaults from  https://wiki.facepunch.com/gmod/Structures/SWEP
             Primary = {},
             Secondary = {},
-
         }
         self:runLua( { "lua/weapons/" .. swepName .. "/shared.lua" } )
         if CLIENT then self:runLua( { "lua/weapons/" .. swepName .. "/cl_init.lua" } ) end

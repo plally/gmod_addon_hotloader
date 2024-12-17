@@ -1,6 +1,6 @@
-HotLoad = HotLoad or {}
+HotLoad           = HotLoad or {}
 
-CreateConVar( "hotload_logging_level", "1", FCVAR_ARCHIVE, "Logging level for HotLoad", 0, 3 )
+local cvar        = CreateConVar( "hotload_logging_level", "1", FCVAR_ARCHIVE, "Logging level for HotLoad", 0, 3 )
 
 local LEVEL_DEBUG = 0
 local LEVEL_INFO  = 1
@@ -10,7 +10,7 @@ local LEVEL_ERROR = 3
 
 local logger = {
     prefix = "[HotLoad]",
-    level = GetConVar( "hotload_logging_level" ):GetInt()
+    level = cvar:GetInt()
 }
 
 cvars.AddChangeCallback( "hotload_logging_level", function( _, _, new )
