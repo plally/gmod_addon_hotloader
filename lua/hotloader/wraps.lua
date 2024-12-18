@@ -1,31 +1,58 @@
 _OldInclude = _OldInclude or include
 _OldAddCSLuaFile = _OldAddCSLuaFile or AddCSLuaFile
 
+local function normalizePath( path, root )
+    local normalized = string.gsub( path, "\\", "/" )
+    if not string.find( path, "../" ) then
+        return normalized
+    end
+
+    normalized = root .. normalized
+
+    local segments = string.Explode( "/", normalized )
+
+    local normalizedSegments = {}
+
+    for _, segment in ipairs( segments ) do
+        if segment == ".." then
+            table.remove( normalizedSegments )
+        else
+            table.insert( normalizedSegments, segment )
+        end
+    end
+
+    return table.concat( normalizedSegments, "/" )
+end
+
 ---@param addon LoadedAddon
 function HotLoad.GetWraps( addon )
     local includeOverride = function( filename )
         local callSource = debug.getinfo( 2, "S" ).source
         local identifierData = HotLoad.parseIdentifier( callSource )
-        if not identifierData.isAddonLoader then
-            return _OldInclude( filename )
+        local callSourceFilename
+        if identifierData.isAddonLoader then
+            callSourceFilename = identifierData.filename
+        else
+            callSourceFilename = callSource:sub( 2 )
         end
+
+        filename = normalizePath( filename, string.GetPathFromFilename( callSourceFilename ) )
 
         local sourceDir = string.GetPathFromFilename( identifierData.filename )
 
         local relativePath = sourceDir .. filename
         if file.Exists( relativePath, "WORKSHOP" ) then
-            local code = file.Read( relativePath, "WORKSHOP" )
-
             HotLoad.logger:Debugf( "Including file '%s'", relativePath )
             addon:runLua( { relativePath } )
             return
         end
 
-        local luaPath = "lua/" .. filename
-        local code = file.Read( luaPath, "GAME" )
+        if not string.StartsWith( filename, "lua/" ) then
+            filename = "lua/" .. filename
+        end
 
-        HotLoad.logger:Debugf( "Including file '%s'", luaPath )
-        addon:runLua( { luaPath } )
+        HotLoad.logger:Debugf( "Including file '%s'", filename )
+        addon:runLua( { filename } )
     end
 
     local AddCSLuaFileOverride = function( filename )
@@ -39,7 +66,7 @@ function HotLoad.GetWraps( addon )
     end
 
     local funcPrinter = function( ... )
-        HotLoad.logger:Debug( "Ignoring function call with args", ... )
+        -- HotLoad.logger:Debug( "Ignoring function call with args", ... )
     end
     return {
         include = includeOverride,

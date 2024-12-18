@@ -58,12 +58,51 @@ function loadedAddon:Mount( done )
     if CLIENT then
         steamworks.DownloadUGC( self.id, function( name )
             self.filename = name
-            self:mountGMA()
+            local files = self:mountGMA()
+            self:SetFiles( files )
             self:load()
             done( self )
         end )
     else
-        self.filename = "data/workshop_addons/" .. self.id .. ".gma"
+        local filename = "workshop_addons/" .. self.id .. ".gma"
+        local data = GMA.Read( filename )
+        if not data then
+            HotLoad.logger:Errorf( "Failed to read GMA '%s'", filename )
+            return
+        end
+
+        local files = {}
+        local tmpDir = string.format( "hotload_tmp/%s", self.id )
+        file.CreateDir( tmpDir )
+        for _, v in pairs( data.Files ) do
+            local name = v.Name
+            local content = v.Content
+            if string.EndsWith( name, ".lua" ) then
+                table.insert( files, name )
+                HotLoad.fileContent[name] = content
+            else
+                local dirPath = string.GetPathFromFilename( name )
+                file.CreateDir( tmpDir .. "/" .. dirPath )
+                file.Write( tmpDir .. "/" .. name, content )
+            end
+        end
+        file.Write( tmpDir .. "/addon.json", util.TableToJSON( {
+            ignore = {},
+            title = string.format( "Hotloaded addon %s", self.id )
+        } ) )
+
+        GMA.Create( string.format( "hotload_tmp/%s_ws_content.txt", self.id ), "data/" .. tmpDir, false, false, function( path )
+            -- TODO fix async
+        end )
+        local path = string.format( "data/hotload_tmp/%s_ws_content.txt", self.id )
+        if not file.Exists( path, "GAME" ) then
+            HotLoad.logger:Errorf( "Failed to create GMA at '%s'", path )
+            return
+        end
+
+        HotLoad.logger:Debugf( "GMA created at '%s'", path )
+        self.filename = path
+        self:SetFiles( files )
         self:mountGMA()
         self:load()
         done( self )
@@ -75,6 +114,7 @@ function loadedAddon:load()
     self:loadWraps()
 
     self:loadAutorun()
+
     if CLIENT then self:loadEffects() end
     self:loadEntities()
     self:loadSweps()
@@ -124,7 +164,10 @@ function loadedAddon:runLua( files )
         end
 
         HotLoad.logger:Debugf( "Running file '%s'", filename )
-        local code = file.Read( filename, "GAME" )
+        local code = HotLoad.fileContent[filename]
+        if not code then
+            code = file.Read( filename, "GAME" )
+        end
 
         local func = CompileString( code, constructIdentifier( filename ) )
 
@@ -146,7 +189,7 @@ function loadedAddon:mountGMA()
         return
     end
 
-    self:SetFiles( files )
+    return files
 end
 
 function loadedAddon:analyzeFiles()
