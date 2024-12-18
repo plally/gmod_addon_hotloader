@@ -22,7 +22,7 @@ HotLoad.constructIdentifier = constructIdentifier
 ---@field entityNames string[]
 ---@field autorun {shared: string[], client: string[], server: string[]}
 ---@field fileLookup table<string, boolean>
----@field wraps table<string, function>
+---@field wraps table<string, any>
 local loadedAddon = {}
 
 ---@params id number
@@ -65,47 +65,26 @@ function loadedAddon:Mount( done )
         end )
     else
         local filename = "workshop_addons/" .. self.id .. ".gma"
-        local data = GMA.Read( filename )
-        if not data then
-            HotLoad.logger:Errorf( "Failed to read GMA '%s'", filename )
+        if not file.Exists( filename, "DATA" ) then
+            HotLoad.logger:Errorf( "Failed to find GMA '%s'", filename )
+            done( nil )
             return
         end
 
-        local files = {}
-        local tmpDir = string.format( "hotload_tmp/%s", self.id )
-        file.CreateDir( tmpDir )
-        for _, v in pairs( data.Files ) do
-            local name = v.Name
-            local content = v.Content
-            if string.EndsWith( name, ".lua" ) then
-                table.insert( files, name )
-                HotLoad.fileContent[name] = content
-            else
-                local dirPath = string.GetPathFromFilename( name )
-                file.CreateDir( tmpDir .. "/" .. dirPath )
-                file.Write( tmpDir .. "/" .. name, content )
+        self.filename = filename
+        HotLoad.StripGMALua( self.id, filename, function( result )
+            if not result then
+                HotLoad.logger:Errorf( "Failed to strip GMA '%s'", filename )
+                done( nil )
+                return
             end
-        end
-        file.Write( tmpDir .. "/addon.json", util.TableToJSON( {
-            ignore = {},
-            title = string.format( "Hotloaded addon %s", self.id )
-        } ) )
 
-        GMA.Create( string.format( "hotload_tmp/%s_ws_content.txt", self.id ), "data/" .. tmpDir, false, false, function( path )
-            -- TODO fix async
+            self.filename = result.contentGMAPath
+            self:mountGMA()
+            self:SetFiles( result.luaFileNames )
+            self:load()
+            done( self )
         end )
-        local path = string.format( "data/hotload_tmp/%s_ws_content.txt", self.id )
-        if not file.Exists( path, "GAME" ) then
-            HotLoad.logger:Errorf( "Failed to create GMA at '%s'", path )
-            return
-        end
-
-        HotLoad.logger:Debugf( "GMA created at '%s'", path )
-        self.filename = path
-        self:SetFiles( files )
-        self:mountGMA()
-        self:load()
-        done( self )
     end
 end
 
@@ -152,33 +131,41 @@ end
 
 local luaFenvMeta = {
     __index = _G,
-    __newindex = function( t, k, v )
+    __newindex = function( _, k, v )
         _G[k] = v
     end
 }
 function loadedAddon:runLua( files )
     for _, filename in pairs( files ) do
         if not self:FileExists( filename ) then
-            HotLoad.logger:Warnf( "Attempted to load file '%s' that was not mounted", filename )
+            HotLoad.logger:Warnf( "Attempted to load file '%s' that was not mounted by the addon loader. Called from %s", filename, callSource )
             return
         end
 
         HotLoad.logger:Debugf( "Running file '%s'", filename )
         local code = HotLoad.fileContent[filename]
         if not code then
-            code = file.Read( filename, "GAME" )
+            code = file.Read( filename, "WORKSHOP" )
         end
 
         local func = CompileString( code, constructIdentifier( filename ) )
 
-        local newEnv = self.wraps
-        setmetatable( newEnv, luaFenvMeta )
-        setfenv( func, newEnv )
+        local env = self.wraps
+        setmetatable( env, luaFenvMeta )
+        setfenv( func, env )
+
+
+        -- TODO maybe this could be stored in the fenv somehow?
+        local oldPath = HotLoad._hotLoadIncludeLocalPath
+        HotLoad._hotLoadIncludeLocalPath = string.GetPathFromFilename( filename )
 
         local startTime = SysTime()
         func()
+
         local elapsed = SysTime() - startTime
         HotLoad.logger:Debugf( "File '%s' took %s seconds to run", filename, elapsed )
+
+        HotLoad._hotLoadIncludeLocalPath = oldPath
     end
 end
 
@@ -194,11 +181,11 @@ end
 
 function loadedAddon:analyzeFiles()
     for _, filename in ipairs( self.files ) do
-        if string.StartsWith( filename, "lua/autorun/server/" ) then
+        if string.match( filename, "lua/autorun/server/[^/]+%.lua" ) then
             table.insert( self.autorun.server, filename )
-        elseif string.StartsWith( filename, "lua/autorun/client/" ) then
+        elseif string.match( filename, "lua/autorun/client/[^/]+%.lua" ) then
             table.insert( self.autorun.client, filename )
-        elseif string.StartsWith( filename, "lua/autorun/" ) then
+        elseif string.match( filename, "lua/autorun/[^/]+%.lua" ) then
             table.insert( self.autorun.shared, filename )
         elseif string.StartsWith( filename, "lua/effects" ) then
             local exploded = string.Explode( "/", filename )
@@ -207,6 +194,9 @@ function loadedAddon:analyzeFiles()
         elseif string.StartsWith( filename, "lua/entities/" ) then
             local exploded = string.Explode( "/", filename )
             local entityName = exploded[3]
+            if string.EndsWith( exploded[3], ".lua" ) then
+                entityName = string.sub( entityName, 1, -5 ) -- remove .lua at the end
+            end
             table.insert( self.entityNames, entityName )
         elseif string.StartsWith( filename, "lua/weapons/" ) then
             local exploded = string.Explode( "/", filename )
@@ -229,6 +219,7 @@ end
 function loadedAddon:loadEntities()
     for _, entityName in pairs( self.entityNames ) do
         ENT = {}
+        self:runLua( { "lua/entities/" .. entityName .. ".lua" } )
         self:runLua( { "lua/entities/" .. entityName .. "/shared.lua" } )
         if CLIENT then self:runLua( { "lua/entities/" .. entityName .. "/cl_init.lua" } ) end
         if SERVER then self:runLua( { "lua/entities/" .. entityName .. "/init.lua" } ) end
