@@ -29,7 +29,6 @@ function HotLoad.GetWraps( addon )
             return _OldInclude( filename )
         end
 
-        print(localPath, filename)
         local relativePath = localPath .. filename
 
         HotLoad.logger:Debugf( "Including file '%s'", relativePath )
