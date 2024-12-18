@@ -1,9 +1,9 @@
 local function constructIdentifier( filename )
-    return string.format( "AddonLoader: filename='%s'", filename )
+    return string.format( "AddonLoader: filename='%s' .lua", filename )
 end
 
 local function parseIdentifier( identifier )
-    local filename = string.match( identifier, "@?AddonLoader: filename='(.*)'" )
+    local filename = string.match( identifier, "@?AddonLoader: filename='(.*)' .lua" )
     return {
         isAddonLoader = string.StartsWith( identifier, "@AddonLoader: " ) or string.StartsWith( identifier, "AddonLoader: " ),
         filename = filename,
