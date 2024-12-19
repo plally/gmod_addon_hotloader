@@ -22,7 +22,7 @@ HotLoad.constructIdentifier = constructIdentifier
 ---@field entityNames string[]
 ---@field autorun {shared: string[], client: string[], server: string[]}
 ---@field fileLookup table<string, boolean>
----@field wraps table<string, function>
+---@field wraps table<string, any>
 local loadedAddon = {}
 
 ---@params id number
@@ -58,15 +58,33 @@ function loadedAddon:Mount( done )
     if CLIENT then
         steamworks.DownloadUGC( self.id, function( name )
             self.filename = name
-            self:mountGMA()
+            local files = self:mountGMA()
+            self:SetFiles( files )
             self:load()
             done( self )
         end )
     else
-        self.filename = "data/workshop_addons/" .. self.id .. ".gma"
-        self:mountGMA()
-        self:load()
-        done( self )
+        local filename = "workshop_addons/" .. self.id .. ".gma"
+        if not file.Exists( filename, "DATA" ) then
+            HotLoad.logger:Errorf( "Failed to find GMA '%s'", filename )
+            done( nil )
+            return
+        end
+
+        self.filename = filename
+        HotLoad.StripGMALua( self.id, filename, function( result )
+            if not result then
+                HotLoad.logger:Errorf( "Failed to strip GMA '%s'", filename )
+                done( nil )
+                return
+            end
+
+            self.filename = result.contentGMAPath
+            self:mountGMA()
+            self:SetFiles( result.luaFileNames )
+            self:load()
+            done( self )
+        end )
     end
 end
 
@@ -75,6 +93,7 @@ function loadedAddon:load()
     self:loadWraps()
 
     self:loadAutorun()
+
     if CLIENT then self:loadEffects() end
     self:loadEntities()
     self:loadSweps()
@@ -112,30 +131,41 @@ end
 
 local luaFenvMeta = {
     __index = _G,
-    __newindex = function( t, k, v )
+    __newindex = function( _, k, v )
         _G[k] = v
     end
 }
 function loadedAddon:runLua( files )
     for _, filename in pairs( files ) do
         if not self:FileExists( filename ) then
-            HotLoad.logger:Warnf( "Attempted to load file '%s' that was not mounted", filename )
+            HotLoad.logger:Warnf( "Attempted to load file '%s' that was not mounted by the addon loader. Called from %s", filename, callSource )
             return
         end
 
         HotLoad.logger:Debugf( "Running file '%s'", filename )
-        local code = file.Read( filename, "GAME" )
+        local code = HotLoad.fileContent[filename]
+        if not code then
+            code = file.Read( filename, "WORKSHOP" )
+        end
 
         local func = CompileString( code, constructIdentifier( filename ) )
 
-        local newEnv = self.wraps
-        setmetatable( newEnv, luaFenvMeta )
-        setfenv( func, newEnv )
+        local env = self.wraps
+        setmetatable( env, luaFenvMeta )
+        setfenv( func, env )
+
+
+        -- TODO maybe this could be stored in the fenv somehow?
+        local oldPath = HotLoad._hotLoadIncludeLocalPath
+        HotLoad._hotLoadIncludeLocalPath = string.GetPathFromFilename( filename )
 
         local startTime = SysTime()
         func()
+
         local elapsed = SysTime() - startTime
         HotLoad.logger:Debugf( "File '%s' took %s seconds to run", filename, elapsed )
+
+        HotLoad._hotLoadIncludeLocalPath = oldPath
     end
 end
 
@@ -146,16 +176,16 @@ function loadedAddon:mountGMA()
         return
     end
 
-    self:SetFiles( files )
+    return files
 end
 
 function loadedAddon:analyzeFiles()
     for _, filename in ipairs( self.files ) do
-        if string.StartsWith( filename, "lua/autorun/server/" ) then
+        if string.match( filename, "lua/autorun/server/[^/]+%.lua" ) then
             table.insert( self.autorun.server, filename )
-        elseif string.StartsWith( filename, "lua/autorun/client/" ) then
+        elseif string.match( filename, "lua/autorun/client/[^/]+%.lua" ) then
             table.insert( self.autorun.client, filename )
-        elseif string.StartsWith( filename, "lua/autorun/" ) then
+        elseif string.match( filename, "lua/autorun/[^/]+%.lua" ) then
             table.insert( self.autorun.shared, filename )
         elseif string.StartsWith( filename, "lua/effects" ) then
             local exploded = string.Explode( "/", filename )
@@ -164,6 +194,9 @@ function loadedAddon:analyzeFiles()
         elseif string.StartsWith( filename, "lua/entities/" ) then
             local exploded = string.Explode( "/", filename )
             local entityName = exploded[3]
+            if string.EndsWith( exploded[3], ".lua" ) then
+                entityName = string.sub( entityName, 1, -5 ) -- remove .lua at the end
+            end
             table.insert( self.entityNames, entityName )
         elseif string.StartsWith( filename, "lua/weapons/" ) then
             local exploded = string.Explode( "/", filename )
@@ -186,6 +219,7 @@ end
 function loadedAddon:loadEntities()
     for _, entityName in pairs( self.entityNames ) do
         ENT = {}
+        self:runLua( { "lua/entities/" .. entityName .. ".lua" } )
         self:runLua( { "lua/entities/" .. entityName .. "/shared.lua" } )
         if CLIENT then self:runLua( { "lua/entities/" .. entityName .. "/cl_init.lua" } ) end
         if SERVER then self:runLua( { "lua/entities/" .. entityName .. "/init.lua" } ) end

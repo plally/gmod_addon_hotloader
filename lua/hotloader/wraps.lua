@@ -1,31 +1,38 @@
 _OldInclude = _OldInclude or include
 _OldAddCSLuaFile = _OldAddCSLuaFile or AddCSLuaFile
 
+HotLoad._hotLoadincludeLocalPath = nil
+
+local function normalizePath( path )
+    local normalized = string.gsub( path, "\\", "/" )
+    return normalized
+end
+
 ---@param addon LoadedAddon
+---@return table<string, any>
 function HotLoad.GetWraps( addon )
     local includeOverride = function( filename )
-        local callSource = debug.getinfo( 2, "S" ).source
-        local identifierData = HotLoad.parseIdentifier( callSource )
-        if not identifierData.isAddonLoader then
-            return _OldInclude( filename )
+        local localPath = HotLoad._hotLoadIncludeLocalPath
+
+        local luaFilename = filename
+        if not string.StartsWith( luaFilename, "lua/" ) then
+            luaFilename = "lua/" .. luaFilename
         end
-
-        local sourceDir = string.GetPathFromFilename( identifierData.filename )
-
-        local relativePath = sourceDir .. filename
-        if file.Exists( relativePath, "WORKSHOP" ) then
-            local code = file.Read( relativePath, "WORKSHOP" )
-
-            HotLoad.logger:Debugf( "Including file '%s'", relativePath )
-            addon:runLua( { relativePath } )
+        if file.Exists( luaFilename, "WORKSHOP" ) then
+            HotLoad.logger:Debugf( "Including file '%s'", filename )
+            addon:runLua( { luaFilename } )
             return
         end
 
-        local luaPath = "lua/" .. filename
-        local code = file.Read( luaPath, "GAME" )
+        if not localPath then
+            HotLoad.logger:Errorf( "Could not find file to include %s", filename )
+            return _OldInclude( filename )
+        end
 
-        HotLoad.logger:Debugf( "Including file '%s'", luaPath )
-        addon:runLua( { luaPath } )
+        local relativePath = localPath .. filename
+
+        HotLoad.logger:Debugf( "Including file '%s'", relativePath )
+        addon:runLua( { relativePath } )
     end
 
     local AddCSLuaFileOverride = function( filename )
@@ -39,7 +46,7 @@ function HotLoad.GetWraps( addon )
     end
 
     local funcPrinter = function( ... )
-        HotLoad.logger:Debug( "Ignoring function call with args", ... )
+        -- HotLoad.logger:Debug( "Ignoring function call with args", ... )
     end
     return {
         include = includeOverride,
