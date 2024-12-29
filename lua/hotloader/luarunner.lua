@@ -57,27 +57,57 @@ function loadedAddon:Mount( done )
 
     if CLIENT then
         steamworks.DownloadUGC( self.id, function( path, fileHandle )
-            if not file.Exists( path, "GAME" ) then
+            self.filename = path
+            local files = self:mountGMA()
+
+            -- try stripping linux prefix and mounting
+            if files == false then
+                HotLoad.logger:Infof( "Failed to mount GMA '%s', trying to strip S:/workshop/ prefix", path )
+                local prefix = "S:/workshop/"
+                if string.StartsWith( path, prefix ) then
+                    path = string.sub( path, #prefix + 1 )
+                end
+                self.filename = path
+                files = self:mountGMA()
+            end
+
+            -- if it is still failing use the file handle to copy to data  directory
+            if files == false then
                 HotLoad.logger:Infof( "File outside of game directory, copying to data directory: %s", path )
                 local newFilename = "workshop_addons/" .. self.id .. ".gma.txt"
                 local dir = string.GetPathFromFilename( newFilename )
                 file.CreateDir( dir )
-                local newFile = file.Open( newFilename, "wb", "DATA" ) --[[@as File]]
+                local didDelete = file.Delete( newFilename, "DATA" )
+                if didDelete then
+                    local newFile = file.Open( newFilename, "wb", "DATA" ) --[[@as File]]
 
-                local f = fileHandle --[[@as File]]
+                    local f = fileHandle --[[@as File]]
 
-                while not f:EndOfFile() do
-                    local data = f:Read( 1024 * 1024 )
-                    newFile:Write( data )
+                    while not f:EndOfFile() do
+                        local data = f:Read( 1024 * 1024 )
+                        newFile:Write( data )
+                    end
+
+                    newFile:Close()
+                    path = "data/" .. newFilename
+                    self.filename = path
+                elseif file.Exists( newFilename, "DATA" ) then
+                    -- its posible we couldnt delete the addon because it was already mounted
+                    -- so just use it I guess
+                    path = "data/" .. newFilename
+                    self.filename = path
                 end
 
-                newFile:Close()
-
-                path = "data/" .. newFilename
+                files = self:mountGMA()
             end
 
-            self.filename = path
-            local files = self:mountGMA()
+            if files == false then
+                HotLoad.logger:Errorf( "Failed to mount GMA, exhausted all methods" )
+                done( nil )
+                return
+            end
+
+
             self:SetFiles( files )
             self:load()
             done( self )
@@ -190,9 +220,9 @@ end
 
 function loadedAddon:mountGMA()
     local success, files = game.MountGMA( self.filename )
-    if not success then
-        HotLoad.logger:Errorf( "Failed to mount GMA '%s'", self.filename )
-        return
+    if not success or not files then
+        HotLoad.logger:Warnf( "Failed to mount GMA '%s'", self.filename )
+        return false
     end
 
     return files
