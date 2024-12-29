@@ -1,6 +1,7 @@
 -- Copied from https://github.com/RaphaelIT7/gmod-lua-gma-writer
 
-GMA = GMA or {}
+HotLoad.GMA = HotLoad.GMA or {}
+local GMA = HotLoad.GMA
 GMA.Addon = {
     Indent = "GMAD",
     Version = 3,
@@ -131,8 +132,12 @@ function GMA.PrePareFiles( tbl, path, files, async )
         if async then
             table.insert( tbl.queue, ffile )
         else
-            -- TODO we should log file read errors, maybe by mapping to the correct FSASYNC enum
-            local err = tbl.checkfile( ffile, FSASYNC_OK, file.Read( ffile, "GAME" ) )
+            local data = file.Read( ffile, "GAME" )
+            local status = FSASYNC_OK
+            if not data then
+                status = FSASYNC_ERR_FILEOPEN
+            end
+            local err = tbl.checkfile( ffile, status, data )
             if err then
                 error( err )
             end
@@ -283,3 +288,4 @@ function GMA.Read( file_path, no_content, path )
 
     return tbl
 end
+

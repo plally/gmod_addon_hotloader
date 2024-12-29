@@ -56,8 +56,27 @@ function loadedAddon:Mount( done )
     done = done or noop
 
     if CLIENT then
-        steamworks.DownloadUGC( self.id, function( name )
-            self.filename = name
+        steamworks.DownloadUGC( self.id, function( path, fileHandle )
+            if not file.Exists( path, "GAME" ) then
+                HotLoad.logger:Infof( "File outside of game directory, copying to data directory: %s", path )
+                local newFilename = "workshop_addons/" .. self.id .. ".gma.txt"
+                local dir = string.GetPathFromFilename( newFilename )
+                file.CreateDir( dir )
+                local newFile = file.Open( newFilename, "wb", "DATA" ) --[[@as File]]
+
+                local f = fileHandle --[[@as File]]
+
+                while not f:EndOfFile() do
+                    local data = f:Read( 1024 * 1024 )
+                    newFile:Write( data )
+                end
+
+                newFile:Close()
+
+                path = "data/" .. newFilename
+            end
+
+            self.filename = path
             local files = self:mountGMA()
             self:SetFiles( files )
             self:load()

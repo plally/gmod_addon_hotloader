@@ -11,6 +11,7 @@ end
 ---@param filename string the filename of the GMA
 ---@param done fun( content: ContentStripperResult|nil) the callback to call when the content has been stripped
 function HotLoad.StripGMALua( id, filename, done )
+    local GMA = HotLoad.GMA
     local data = GMA.Read( filename )
     if not data then
         HotLoad.logger:Errorf( "Failed to read GMA '%s'", filename )
