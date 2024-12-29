@@ -92,6 +92,8 @@ function loadedAddon:Mount( done )
                     path = "data/" .. newFilename
                     self.filename = path
                 elseif file.Exists( newFilename, "DATA" ) then
+                    -- TODO we could maybe just  read the already mounted addon here
+
                     -- its posible we couldnt delete the addon because it was already mounted
                     -- so just use it I guess
                     path = "data/" .. newFilename
